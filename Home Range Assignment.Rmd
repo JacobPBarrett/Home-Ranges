@@ -1,18 +1,82 @@
 ---
-title: "Home Range Analysis"
-author: "Jake Barrett"
-date: "11/2/2021"
-output: html_document
+title: Home Range Analysis <br><small>Advanced Data Analytics</small></br>
+author: "Jacob Barrett"
+output:
+  html_document: 
+    df_print: paged
+    rows.print: 10
+    theme: cosmo
+    highlight: breezedark
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document: default
+  html_notebook:
+    df_print: paged
+    rows.print: 10
+    theme: cosmo
+    highlight: breezedark
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options:
+  chunk_output_type: inline
+  mode: gfm
 ---
+<body style="background-color:#DDA15E;">
+```{=html}
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  font-family: "Times New Roman", Times, serif;
+  color: Black;
+  text-align: center;
+}
+
+h4.author { /* Header 4 - and the author and data headers use this too  */
+  font-size: 25px;
+  font-family: "Times New Roman", Times, serif;
+  font-weight: bold;
+  color: #D02349;
+  text-align: center;
+}
+
+body {
+  font-family: Helvetica;
+  font-size: 12pt;
+}
+
+.zoom {
+  transform-origin: 40% 50% 0;
+  transition: transform .2s;
+  margin: 0 auto;
+}
+.zoom img{
+	width:auto;
+	height:auto;	
+}
+.zoom:hover {
+  transform: scale(2);
+}
+
+th, td {padding: 5px;}
+
+</style>
+```
+
 
 ```{r setup, include=FALSE, message=FALSE, warning=FALSE}
 packages<-c("adehabitatHR","data.table","ggfortify","grid","move","moveVis","OpenStreetMap","pbapply","plotly","rgdal","sp","tidyverse","viridis", "rgeos","dplyr")
 
 sapply(packages, library, character.only=T)
 ```
-<body style="background-color:#A8DADC;">
 
-## Home Range Analysis 
+# Home Range Analysis 
 
 The data presented here was sampled from movebank.org and was originally published here: 
 
@@ -20,9 +84,11 @@ The data presented here was sampled from movebank.org and was originally publish
 
 In their study, the authors measured the spatial activity of copperheads (*Agkistrodon contortrix*) around pedestrian trails in an urban forest (Overton Park, Memphis, TN) using radio telemetry. They found that sex and season, not distance to the nearest trail, affected the distance that snakes moved and concluded that copperheads may be tolerant of low-level human disturbances. 
 
-$~$
+![](images/copperhead.png)
 
-<span style="color:black;font-size:30px">1.1 Bring in data </span>
+<br>
+
+# Bring in data 
 
 <details><summary><big>Import Dataset with ```read.csv```</big></summary>
 ```{r read in data}
@@ -31,26 +97,26 @@ snake <- snake.data %>%
     filter(individual.local.identifier == c("ID_4241","ID_4270","ID_7270","ID_4266"))
 ```
 
-$~$ 
+<br> 
 
 **I decided to subset for just 4 individuals that I thought gave a good representation of the data. These snakes each primarily resided in different sections of the park and displayed variation in the sizes of their respective home ranges.** 
 
-$~$
+<br>
 
 </details>
 ```{r}
 head(snake)
 ```
 
-$~$
+<br>
 
-<span style="color:black;font-size:30px">1.2 Looking for Outliers </span>
+## Looking for Outliers 
 
-$~$
+<br>
 
 **The points appear to be have a similar spread for each individual without any clear outliers among them (at least to my eyes).**
 
-$~$
+<br>
 
 ```{r qaqc plot, echo=TRUE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
 qaqc_plot <- ggplot() + geom_point(data=snake, 
@@ -71,9 +137,9 @@ lapply(split(snake, snake$individual.local.identifier),
 files <- list.files(path = ".", pattern = "[ID_]+[3413-7274]+", full.names = TRUE)
 ```
 
-$~$
+<br>
 
-<span style="color:black;font-size:30px">1.3 Analysis </span>
+# Analysis 
 
 ```{r first analysis, echo=TRUE, message=FALSE, warning=FALSE}
 utm_points <- cbind(snake$utm.easting, snake$utm.northing)
@@ -94,13 +160,13 @@ raster2_utm <- openproj(raster2,
               projection = "+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs")
 ```
 
-$~$ 
+<br> 
 
 **I decided to make a second raster that still takes into account the location of the points when choosing the maximum and minimum coordinates of the resulting map, but with a smaller window to get us slightly more zoom over our park (which represents such a small area).** 
 
 **Here's the map made with the raster inputs from Dr. Gentry's code:**
 
-$~$
+<br>
 
 ```{r raster map, message=FALSE, warning=FALSE}
 autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() +
@@ -112,11 +178,11 @@ autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() +
         y="Northing") + guides(color=guide_legend("Identifier"))
 ```
 
-$~$ 
+<br> 
 
 **And with a constrained window:** 
 
-$~$
+<br>
 
 ```{r raster2 map, message=FALSE, warning=FALSE}
 autoplot.OpenStreetMap(raster2_utm, expand = TRUE) + theme_bw() +
@@ -128,19 +194,19 @@ autoplot.OpenStreetMap(raster2_utm, expand = TRUE) + theme_bw() +
         y="Northing") + guides(color=guide_legend("Identifier"))
 ```
 
-$~$
+<br>
 
-<span style="color:black;font-size:30px">1.4 Home Range Analysis </span>
+# Home Range Analysis 
 
-$~$
+<br>
 
-<span style="color:black;font-size:25px">1.4.1 Minimum Convex Polygon </span>
+## Minimum Convex Polygon 
 
-$~$ 
+<br> 
 
 **For some reason I was having an issue with the permit status (?) using the pbapply package. For whatever reason and completely mysteriously to me, the first three lines of code in this chunk fixed the issue for me** 
 
-$~$
+<br>
 
 ```{r minimum convex polygons,fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 library(maptools)
@@ -173,9 +239,9 @@ mcp_raster <- function(filename){
 pblapply(files, mcp_raster)
 ```
 
-$~$
+<br>
 
-<span style="color:black;font-size:25px">1.4.2 Kernel-Density Estimation </span>
+## Kernel-Density Estimation 
 
 ```{r kernel density, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 kde_raster <- function(filename){
@@ -205,9 +271,9 @@ kde_raster <- function(filename){
 pblapply(files, kde_raster)
 ```
 
-$~$
+<br>
 
-<span style="color:black;font-size:25px">1.4.3 Brownian Bridge Movement </span>
+## Brownian Bridge Movement
 
 ```{r Brownian Bridge Movement, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 snake_4241 <- read.csv("ID_4241.csv")
@@ -242,7 +308,7 @@ bb.plot <- autoplot.OpenStreetMap(raster2_utm, expand = TRUE) + theme_bw() + the
 bb.plot
 ```
 
-$~$
+<br>
 
 ```{r Brownian Bridge Movement 2, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 snake_4270 <- read.csv("ID_4270.csv")
@@ -277,8 +343,6 @@ bb.plot <- autoplot.OpenStreetMap(raster2_utm, expand = TRUE) + theme_bw() + the
 bb.plot
 ```
 
-$~$ 
+<br> 
 
 **Interestingly, even though 4270 had a home range that was fairly comparable to 4241 in size (at least by mcp), adding the timestamp data and generating this 'heat map' of activity shows that 4270's activity was generally concentrated in a much denser area.** 
-
-$~$
