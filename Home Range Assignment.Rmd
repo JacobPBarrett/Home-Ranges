@@ -1,0 +1,190 @@
+---
+title: "Home Range Analysis"
+author: "Jake Barrett"
+date: "11/2/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE, message=FALSE, warning=FALSE}
+packages<-c("adehabitatHR","data.table","ggfortify","grid","move","moveVis","OpenStreetMap","pbapply","plotly","rgdal","sp","tidyverse","viridis", "rgeos","dplyr")
+
+sapply(packages, library, character.only=T)
+```
+
+## Home Range Analysis 
+
+<span style="color:black;font-size:30px">1.1 Bring in data </span>
+
+$~$
+
+<details><summary><big>Import Dataset with ```read.csv```</big></summary>
+```{r read in data}
+snake.data <- read.csv("data/snakes.csv")
+snake <- snake.data %>%
+    filter(individual.local.identifier == c("ID_4241","ID_4270","ID_7270","ID_4266"))
+```
+</details>
+```{r}
+head(snake)
+```
+
+<span style="color:black;font-size:30px">1.2 Looking for Outliers </span>
+
+```{r qaqc plot, echo=TRUE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+qaqc_plot <- ggplot() + geom_point(data=snake, 
+                                   aes(utm.easting,utm.northing,
+                                       color=individual.local.identifier)) +
+                        labs(x="Easting", y="Northing") +
+                        guides(color=guide_legend("Identifier"))
+
+ggplotly(qaqc_plot)
+```
+
+
+```{r split data, echo=TRUE, message=FALSE, warning=FALSE}
+lapply(split(snake, snake$individual.local.identifier), 
+       function(x)write.csv(x, file = paste(x$individual.local.identifier[1],".csv", sep = ""), row.names = FALSE))
+```
+
+```{r make list of individual files, echo=TRUE, message=FALSE, warning=FALSE}
+files <- list.files(path = ".", pattern = "[ID_]+[3413-7274]+", full.names = TRUE)
+```
+
+
+<span style="color:black;font-size:30px">1.3 Analysis </span>
+
+```{r first analysis, echo=TRUE, message=FALSE, warning=FALSE}
+utm_points <- cbind(snake$utm.easting, snake$utm.northing)
+utm_locations <- SpatialPoints(utm_points, 
+                 proj4string=CRS("+proj=utm +zone=16 +datum=WGS84"))
+proj_lat.lon <- as.data.frame(spTransform(
+                utm_locations, CRS("+proj=longlat +datum=WGS84")))
+colnames(proj_lat.lon) <- c("x","y")
+raster <- openmap(c(max(proj_lat.lon$y)+0.01, min(proj_lat.lon$x)-0.01), 
+                  c(min(proj_lat.lon$y)-0.01, max(proj_lat.lon$x)+0.01), 
+                  type = "bing")
+raster_utm <- openproj(raster, 
+              projection = "+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs")
+```
+
+```{r raster map, fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() +
+  theme(legend.position="right") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_point(data=snake, aes(utm.easting,utm.northing,
+             color=individual.local.identifier), size = 1, alpha = 0.8) +
+  theme(axis.title = element_text(face="bold")) + labs(x="Easting",
+        y="Northing") + guides(color=guide_legend("Identifier"))
+```
+
+$~$
+
+<span style="color:black;font-size:30px">1.4 Home Range Analysis </span>
+
+$~$
+
+<span style="color:black;font-size:25px">1.4.1 Minimum Convex Polygon </span>
+
+```{r minimum convex polygons,fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+library(maptools)
+if (!require(gpclib)) install.packages("gpclib", type="source")
+gpclibPermit() #This resolved the following error message from pbapply: "Error: isTRUE(gpclibPermitStatus()) is not TRUE"
+
+mcp_raster <- function(filename){
+  data <- read.csv(file = filename)
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+  xy <- SpatialPoints(data.proj@coords)
+  mcp.out <- mcp(xy, percent=100, unout="ha")
+  mcp.points <- cbind((data.frame(xy)),data$individual.local.identifier)
+  colnames(mcp.points) <- c("x","y", "identifier")
+  mcp.poly <- fortify(mcp.out, region = "id")
+  units <- grid.text(paste(round(mcp.out@data$area,2),"ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  mcp.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=mcp.poly, aes(x=mcp.poly$long, y=mcp.poly$lat), alpha=0.8) +
+    geom_point(data=mcp.points, aes(x=x, y=y)) + 
+    labs(x="Easting (m)", y="Northing (m)", title=mcp.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+  mcp.plot
+}
+
+pblapply(files, mcp_raster)
+```
+
+$~$
+
+<span style="color:black;font-size:25px">1.4.2 Kernel_Density Estimation </span>
+
+```{r kernel density, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+kde_raster <- function(filename){
+  data <- read.csv(file = filename)
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+  xy <- SpatialPoints(data.proj@coords)
+  kde<-kernelUD(xy, h="href", kern="bivnorm", grid=100)
+  ver <- getverticeshr(kde, 95)
+  kde.points <- cbind((data.frame(data.proj@coords)),data$individual.local.identifier)
+  colnames(kde.points) <- c("x","y","identifier")
+  kde.poly <- fortify(ver, region = "id")
+  units <- grid.text(paste(round(ver$area,2)," ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  kde.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=kde.poly, aes(x=kde.poly$long, y=kde.poly$lat), alpha = 0.8) +
+    geom_point(data=kde.points, aes(x=x, y=y)) +
+    labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+  kde.plot
+}
+
+pblapply(files, kde_raster)
+```
+
+$~$
+
+<span style="color:black;font-size:25px">1.4.3 Brownian Bridge Movement </span>
+
+```{r Brownian Bridge Movement, fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
+snake_4241 <- read.csv("ID_4241.csv")
+date <- as.POSIXct(strptime(as.character(snake_4241$timestamp),"%Y-%m-%d %H:%M:%S", tz="Asia/Bangkok"))
+snake_4241$date <- date
+snake_4241.reloc <- cbind.data.frame(snake_4241$utm.easting, snake_4241$utm.northing,
+                                as.vector(snake_4241$individual.local.identifier),
+                                as.POSIXct(date))
+colnames(snake_4241.reloc) <- c("x","y","id","date")
+trajectory <- as.ltraj(snake_4241.reloc, date=date, id="snake_4241")
+sig1 <- liker(trajectory, sig2 = 58, rangesig1 = c(0, 5), plotit = FALSE)
+snake_4241.traj <- kernelbb(trajectory, sig1 = .7908, sig2 = 58, grid = 100)
+bb_ver <- getverticeshr(snake_4241.traj, 50)
+bb_poly <- fortify(bb_ver, region = "id", 
+                   proj4string = CRS("+proj=utm +zone=16+
+                                     datum=WGS84 +units=m +no_defs"))
+colnames(bb_poly) <- c("x","y","order","hole","piece","id","group")
+bb_image <- crop(snake_4241.traj, bb_ver, 
+                 proj4string = CRS("+proj=utm +zone=16 +
+                                   datum=WGS84 +units=m +no_defs"))
+bb_units <- grid.text(paste(round(bb_ver$area,2)," ha"), x=0.85,  y=0.95,
+                   gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+bb.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_tile(data=bb_image, 
+            aes(x=bb_image@coords[,1], y=bb_image@coords[,2],
+            fill = bb_image@data$ud)) +
+  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "black", fill = NA) +
+  scale_fill_viridis_c(option = "inferno") + annotation_custom(bb_units) +
+  labs(x="Easting (m)", y="Northing (m)", title="4241") +
+  theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+bb.plot
+```
+
+$~$
+
+
